@@ -1,4 +1,4 @@
-using Internal;
+using System.Xml.Serialization;
 using System.Reflection;
 using System;
 using System.Linq;
@@ -9,8 +9,20 @@ using System.Collections.Generic;
 
 public enum MoleculeType {A,B,C,D,E};
 
-public interface Module{
-    public abstract void GetDecision(Robot robot); 
+public abstract class Module{
+    public abstract void GetDecision(Robot robot);
+    public virtual bool SampleResearchable(Robot robot)
+    {
+        bool canDo = robot.SamplesResearchable(false);
+        Console.Error.WriteLine("At least a research can be done : " + (bool)canDo);
+        return canDo;
+    } 
+    public virtual bool SampleDoable(Robot robot)
+    {
+        bool canDo = robot.SamplesDoable();
+        Console.Error.WriteLine("At least a sample can be done : " + (bool)canDo);
+        return canDo;
+    }
 }
 
 public class StartPoint : Module{
@@ -21,220 +33,244 @@ public class StartPoint : Module{
     }
 }
 
-public class Laboratory : Module{
-
-    public override void GetDecision(Robot robot)
-    {
-        foreach(Sample sample in robot.samples)
-                {
-                    if (CanResearchSample(sample))
-                    {
-                        robot.Connect(sample.id);
-                        return;
-                    }                    
-                }
-                
-                if (!SamplesDoable())
-                {
-                    if (robot.samples.Count < 3)
-                    {
-                        GoTo("SAMPLES");
-                        return;
-                    }
-                    else
-                    {
-                        GoTo("DIAGNOSIS");
-                        return;
-                    }
-                }
-                else 
-                {
-                    GoTo("MOLECULES");
-                    return;
-                }
-            return;
-    }  
-} 
-
-public class Diagnosis : Module{
-
-    public override void GetDecision(Robot robot)
-    {
-        Sample selectedSample = robot.ChooseDiagnosticableSample();
-                if (selectedSample != null)
-                {                    
-                    Connect(selectedSample.id); 
-                    return;
-                }
-                else
-                {
-                    /*
-                    if (Player.robots[1].score < score + 10)
-                    {
-                        foreach (Sample sample in samples)
-                        {
-                            if(!IsGoodForProject(sample))
-                            {
-                                Connect(sample.id);
-                                return;
-                            }                        
-                        }
-                    
-                        if (samples.Count < 3)
-                        {
-                            foreach(Sample sample in _samples)
-                            {
-                                if (IsGoodForProject(sample))
-                                {
-                                    Connect(sample.id);
-                                    return;                                
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                    */
-                        if (robot.samples.Count < 3)
-                        {
-                            foreach (Sample sample in Player._samples)
-                            {
-                                if (robot.CanResearchSample(sample))
-                                {
-                                    robot.Connect(sample.id);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (robot.storage.Sum() == 10 && !robot.SamplesResearchable(false))
-                    {
-                        if (robot.samples.Count == 3)
-                        {
-                            Connect(samples.First().id);
-                            return;
-                        }
-                        else
-                        {
-                            robot.GoTo("SAMPLES");
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        if (robot.SamplesResearchable(false))
-                        {                        
-                            robot.GoTo("LABORATORY");
-                            return;
-                        }
-                        else if (robot.SamplesDoable()) 
-                        {                            
-                            robot.GoTo("MOLECULES");
-                            return;
-                        }
-                        else if (robot.samples.Count == 3)
-                        {
-                            robot.Connect(samples.First().id);
-                            return;
-                        }
-                        else
-                        {                            
-                            robot.GoTo("SAMPLES");
-                            return;
-                        }
-                    }
-                //}
-                return;
-    }  
-}
-
 public class Samples : Module{
 
     public override void GetDecision(Robot robot)
     {
         Random rnd = new Random();
             
-                if (robot.samples.Count < 3)
-                {
-                    if (robot.expertise.Sum() < 3)
-                    {
-                        robot.Connect(1);
-                        return;
-                    }
-                    else if (robot.expertise.Sum() < 6)
-                    {                        
-                        //robot.Connect((int)rnd.Next(1,3));
-                        robot.Connect(2);
-                        return;
-                    }
-                    else if (robot.expertise.Sum() < 9)
-                    {              
-                        robot.Connect(2);
-                        //robot.Connect((int)rnd.Next(1,4));
-                        return;
-                    }
-                    else
-                    {
-                        robot.Connect(2);
-                        //robot.Connect((int)rnd.Next(2,4));
-                        return;
-                    }
-                }
-                else
-                {
-                    robot.GoTo("DIAGNOSIS");
-                    return;
-                }
+        if (robot.expertise.Sum() == 0)
+        {
+            if (robot.samples.Count < 2)
+            {
+                robot.Connect(1);
                 return;
+            }
+            else
+            {
+                robot.GoTo("DIAGNOSIS");
+                return;
+            }
+        }   
+        else if (robot.samples.Count < 3)
+        {
+            if (robot.expertise.Sum() < 6)
+            {
+                robot.Connect(1);
+                return;
+            }
+            else if (robot.expertise.Sum() < 10)
+            {                        
+                //robot.Connect((int)rnd.Next(1,3));
+                robot.Connect(2);
+                return;
+            }
+            else
+            {              
+                robot.Connect(3);
+                return;
+            }
+        }         
+        else
+        {
+            robot.GoTo("DIAGNOSIS");
+            return;
+        }
+        return;
     }  
 }
+
+public class Diagnosis : Module{
+
+    public override void GetDecision(Robot robot)
+    {
+        Sample selectedSample = robot.ChooseDiagnosticableSample();
+        if (selectedSample != null)
+        {                    
+            robot.Connect(selectedSample.id); 
+            return;
+        }
+        else
+        {
+            if (SampleResearchable(robot))
+            {
+                robot.GoTo("LABORATORY");
+                return;
+            }
+            else if (SampleDoable(robot))
+            {
+                robot.GoTo("MOLECULES");
+                return;
+            }
+            else
+            {
+                foreach (Sample sample in Player.samples)
+                {
+                    if (robot.CanResearchSample(sample) && robot.samples.Count < 3)
+                    {
+                        robot.Connect(sample.id);
+                        return;
+                    }
+                }   
+                
+                if (robot.samples.Count > 0)
+                {
+                    robot.Connect(robot.samples.OrderByDescending(sample => sample.rank).First().id);
+                    return;
+                }
+
+                robot.GoTo("SAMPLES");
+                return;
+            }
+        }
+    }  
+}
+
 
 public class Molecules : Module{
 
     public override void GetDecision(Robot robot)
     {
+        int[] needed = new int[5]{0,0,0,0,0};
+
         if (robot.storage.Sum() < 10)
-                {
-                    foreach(Sample sample in robot.samples.OrderByDescending(sample => sample.rank))
-                    {                        
-                        if (robot.CanResearchSample(sample))
-                        {
-                            robot.GoTo("LABORATORY");
-                            return;
-                        }                            
-                        else if (robot.CanDoSample(sample))
-                        {                        
-                            for (int i = 0 ; i<5 ; i++)
-                            {                            
-                                if ((storage[i] + expertise[i]) < sample.cost[i] && Player.available[i] > 0)
+            {
+                foreach(Sample sample in robot.samples.OrderBy(s => s.rank))
+                {   
+                    if(robot.CanCollectMolecules(sample))
+                    {
+
+                        for (int i = 0 ; i<5 ; i++)
+                        {  
+                            needed[i] += Math.Max(sample.cost[i] - robot.expertise[i],0);
+                            if (needed.Sum() > 10)
+                            {
+                                if (robot.samples.OrderBy(s => s.rank).ToList().IndexOf(sample) != 0)
                                 {
-                                    robot.Connect((MoleculeType)i);
-                                    return;            
+                                    needed = new int[5]{0,0,0,0,0};
+                                }
+                                Console.Error.WriteLine("first break");
+                                break;
+                            }    
+                        }                     
+                        
+                        Console.Error.WriteLine("needed : " + String.Join(" ",needed));
+                        
+                        if (needed.Sum() > 10)
+                        {
+                            if (robot.samples.OrderBy(s => s.rank).ToList().IndexOf(sample) != 0)
+                                {
+                                    needed = new int[5]{0,0,0,0,0};
+                                }
+                            Console.Error.WriteLine("second break");
+                            break;
+                        }    
+
+                        if (!robot.CanResearchSample(sample))
+                        {
+                            Console.Error.WriteLine("cannot research sample");
+                            if (robot.CanDoSample(sample) && needed.Sum() <= 10)
+                            {            
+                                
+                                Console.Error.WriteLine("beginning molecule collection");            
+                                for (int i = 0 ; i<5 ; i++)
+                                {         
+                                    Console.Error.Write("collection molecule " + (MoleculeType)i + " ??");                   
+                                    
+                                    if (needed[i] - robot.storage[i] > 0 && Player.available[i] > 0)
+                                    {
+                                        Console.Error.WriteLine(" : Yes");
+                                        robot.Connect((MoleculeType)i);
+                                        return;            
+                                    }      
+                                    else
+                                    { 
+                                        Console.Error.WriteLine(" : No");
+                                    }                      
                                 }                            
-                            }                            
-                        }
-                    }
-                    
+                            }
+                        }    
+                    }                  
+                }
+
+
+                if (SampleResearchable(robot) || needed.Sum() > 10)
+                {   
+                    Console.Error.WriteLine("needed : " + String.Join(" ",needed));
+                    Console.Error.WriteLine("can research sample, goto lab");
+                    robot.GoTo("LABORATORY");
+                    return;
+                }
+                else
+                {
+                    Console.Error.WriteLine("needed : " + String.Join(" ",needed));
+                    Console.Error.WriteLine("cannot research sample, goto diag");
+                    robot.GoTo("DIAGNOSIS");
+                    return;
+                }
+
+                
+                return;
+            }
+            else
+            {                
+                if (!SampleResearchable(robot))
+                {
+                    Console.Error.WriteLine("+10 needed : " + String.Join(" ",needed));
+                    Console.Error.WriteLine("cannot research sample, goto diag");
                     robot.GoTo("DIAGNOSIS");
                     return;
                 }
                 else
-                {                
-                    if (!robot.SamplesResearchable(false))
-                    {
-                        robot.GoTo("DIAGNOSIS");
-                        return;
-                    }
-                    else
-                    {                    
-                        robot.GoTo("LABORATORY");
-                        return;
-                    }
+                {      
+                    Console.Error.WriteLine("+10 needed : " + String.Join(" ",needed));
+                    Console.Error.WriteLine("can research sample, goto lab");              
+                    robot.GoTo("LABORATORY");
+                    return;
                 }
-                return;
+            }
+        return;
     }  
 }
+
+public class Laboratory : Module{
+
+    public override void GetDecision(Robot robot)
+    {
+    
+        if (SampleResearchable(robot))
+        {
+            foreach(Sample sample in robot.samples)
+                {
+                    if (robot.CanResearchSample(sample))
+                    {
+                        robot.Connect(sample.id);
+                        return;
+                    }                    
+                }
+        }
+            
+        if (!SampleDoable(robot) || robot.samples.Count < 2)
+        {
+            if (robot.samples.Count < 3)
+            {
+                robot.GoTo("SAMPLES");
+                return;
+            }
+            else
+            {
+                robot.GoTo("DIAGNOSIS");
+                return;
+            }
+        }
+        else 
+        {
+            robot.GoTo("MOLECULES");
+            return;
+        }
+        return;
+    }  
+} 
 
 public class Project
 {
@@ -244,8 +280,7 @@ public class Project
     {
         expertise = _expertise;
     }
-}
-        
+}        
 
 public class Sample
 {
@@ -295,21 +330,27 @@ public class Robot
         expertise = _expertise;
         samples = new List<Sample>();
     }
-
-    public SetModule(Module _module)
-    {
-        target = _module;
-    }
     
-    public void Update(List<Sample> _samples)
+    public void Update()
     {
-        if (samples.Count == 0 && target != Module.SAMPLES)
-        {
-            GoTo(Module.SAMPLES);
-            return;
-        }
-        
         target.GetDecision(this);
+    }
+
+    public bool CanCollectMolecules(Sample sample)
+    {
+        int nbNeeded = 0;
+        bool canDo = true;
+
+        for (int i = 0 ; i < 5 ; i++ )
+        {
+            nbNeeded += Math.Max(0,sample.cost[i] - storage[i] - expertise[i]);
+        }
+
+        if (nbNeeded > (10 - storage.Sum()))
+        {
+            canDo = false;
+        }
+        return canDo;
     }
     
     public Project ClosestProject(List<Project> projects)
@@ -403,6 +444,9 @@ public class Robot
                 canDo = false;
             }
         }        
+        
+        Console.Error.WriteLine("Sample " + samples.IndexOf(sample) + " can be researched : " + (bool)canDo);
+        
         return canDo;        
     }
     
@@ -410,15 +454,24 @@ public class Robot
     {
         bool canDo = true;
         
-        for (int i = 0; i<5 ; i++)
-        {               
-            if ((Player.available[i] + storage[i] + expertise[i]) < sample.cost[i])
-            {
-                canDo = false;
+        if (!CanResearchSample(sample) && storage.Sum() >= 10)
+        {
+            canDo = false;
+        }
+        else
+        {
+            for (int i = 0; i<5 ; i++)
+            {               
+                if ((Player.available[i] + storage[i] + expertise[i]) < sample.cost[i])
+                {
+                    canDo = false;
+                    break;
+                }
             }
-            Console.Error.WriteLine("En stock : " + Player.available[i] + " - Inventaire : " + storage[i] + " - Expertise :  " + expertise[i] + " - Coût : " + sample.cost[i] + " canDo : " + (bool)canDo);
-             
         }        
+            
+        Console.Error.WriteLine("Sample " + samples.IndexOf(sample) + " can be done : " + (bool)canDo);
+        
         return canDo;
     }
     
@@ -498,21 +551,27 @@ class Player
                 int expertiseC = int.Parse(inputs[10]);
                 int expertiseD = int.Parse(inputs[11]);
                 int expertiseE = int.Parse(inputs[12]);
-                Module modTarget;
+                Module modTarget = null;
+
                 switch (target)
                 {
+                    case "START_POS":
+                    modTarget = new StartPoint();   
+                    break;         
                     case "SAMPLES":
                     modTarget = new Samples();
-                    case "LABORATORY":
-                    modTarget = new Laboratory();
+                    break;
                     case "DIAGNOSIS":
                     modTarget = new Diagnosis();
+                    break;
                     case "MOLECULES":
                     modTarget = new Molecules();
-                    case "START_POINT":
-                    modTarget = new StartPoint();                    
+                    break;
+                    case "LABORATORY":
+                    modTarget = new Laboratory();
+                    break;        
                     default:
-                    modTarget
+                    break;
                 }
                 
                 robots.Add(new Robot(
@@ -569,20 +628,31 @@ class Player
             
             Robot myRobot = robots[0];            
                 
+            Console.Error.WriteLine("Module : " + String.Join(" ",myRobot.target.ToString()));
             Console.Error.WriteLine("Storage (A B C D E) : " + String.Join(" ",myRobot.storage));
             Console.Error.WriteLine("Expert. (A B C D E) : " + String.Join(" ",myRobot.expertise));
+            int[] potential = new int[5];
+            for (int i = 0 ; i < 5 ; i++)
+            {
+                potential[i] = myRobot.storage[i] + myRobot.expertise[i];
+            }
             
             foreach(Project project in projects)
             {
-                Console.Error.WriteLine("Projet " + projects.IndexOf(project) + " - Expertise : " + String.Join(" ",project.expertise));   
+                Console.Error.WriteLine("Projet " + projects.IndexOf(project) + "  Expertise : " + String.Join(" ",project.expertise));   
             }
 
+            Console.Error.WriteLine("");
+            Console.Error.WriteLine("=========== SAMPLES ===========");
+            Console.Error.WriteLine("");
+            
+            Console.Error.WriteLine("Potential (A B C D E) : " + String.Join(" ",potential));
+            Console.Error.WriteLine("");
+
             foreach(Sample sample in myRobot.samples.OrderByDescending(item => item.health))
-                {      
-                    
-                Console.Error.WriteLine("Rank " + sample.rank + " - Health : " + sample.health + " - Cost (A B C D E) : " + String.Join(" ",sample.cost));
-                
-                }                
+            {                          
+                Console.Error.WriteLine("Samp Cost (A B C D E) : " + String.Join(" ",sample.cost) + " - Rank " + sample.rank + " - Health : " + sample.health);
+            }                
                 
             myRobot.Update();            
         

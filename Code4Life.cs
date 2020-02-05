@@ -1,4 +1,4 @@
-using System.Xml.Serialization;
+    using System.Xml.Serialization;
 using System.Reflection;
 using System;
 using System.Linq;
@@ -13,7 +13,7 @@ public abstract class Module{
     public abstract void GetDecision(Robot robot);
     public virtual bool SampleResearchable(Robot robot)
     {
-        bool canDo = robot.SamplesResearchable(false);
+        bool canDo = robot.SamplesResearchable();
         Console.Error.WriteLine("At least a research can be done : " + (bool)canDo);
         return canDo;
     } 
@@ -54,6 +54,11 @@ public class Samples : Module{
         }   
         else if (robot.samples.Count < 3)
         {
+            if (robot.ScoreFromProject(robot.ClosestProject()) < 1)
+            {
+                robot.Connect(rnd.Next(1,4));
+                return;
+            }
             if (robot.expertise.Sum() < 6)
             {
                 robot.Connect(1);
@@ -92,37 +97,60 @@ public class Diagnosis : Module{
         }
         else
         {
+
+            // We put apart samples not realisable
+            foreach (Sample s in robot.samples)
+            {
+                if (!robot.CanDoSample(s) || (robot.neededForSample(s) > 6 && s.rank < 3))
+                {
+                    robot.Connect(s.id);
+                    return;
+                }
+            }
+
+            // We take researchable samples if they exist in the cloud
+            if (robot.samples.Count < 3)
+            {
+                foreach (Sample s in Player.samples)
+                {
+                    if (robot.CanResearchSample(s) && robot.neededForSample(s) < 3)
+                    {
+                        robot.Connect(s.id);
+                        return;
+                    }
+                }
+            }            
+
+            // If we're really close to one project, we ditch all samples that do not help to finish it
+            if (robot.samples.Count > 0 && robot.ScoreFromProject(robot.ClosestProject()) < 1)
+            {
+                foreach(Sample sample in robot.samples)
+                {
+                    if(!robot.IsCloseToProjectEnd(sample))
+                    {
+                        robot.Connect(sample.id);
+                        return;
+                    }
+                }
+            }
+
+            // if at least one sample is researchable goto lab
             if (SampleResearchable(robot))
             {
                 robot.GoTo("LABORATORY");
                 return;
             }
+
+            // if at least one sample is realisable goto molecules
             else if (SampleDoable(robot))
             {
                 robot.GoTo("MOLECULES");
                 return;
             }
-            else
-            {
-                foreach (Sample sample in Player.samples)
-                {
-                    if (robot.CanResearchSample(sample) && robot.samples.Count < 3)
-                    {
-                        robot.Connect(sample.id);
-                        return;
-                    }
-                }   
-                
-                if (robot.samples.Count > 0)
-                {
-                    robot.Connect(robot.samples.OrderByDescending(sample => sample.rank).First().id);
-                    return;
-                }
-
-                robot.GoTo("SAMPLES");
-                return;
-            }
         }
+
+        robot.GoTo("SAMPLES");
+        return;
     }  
 }
 
@@ -135,14 +163,26 @@ public class Molecules : Module{
 
         if (robot.storage.Sum() < 10)
             {
+                int index = 0;
                 foreach(Sample sample in robot.samples.OrderBy(s => s.rank))
                 {   
+
+                    if (index != 0)
+                            {
+                                Sample previousSample = robot.samples.OrderBy(s => s.rank).ToList()[index - 1];
+                                if (robot.CanDoSample(previousSample))
+                                {
+                                needed[(int)previousSample.gain] -= 1;
+                                }
+                            }
+                            
                     if(robot.CanCollectMolecules(sample))
                     {
 
                         for (int i = 0 ; i<5 ; i++)
                         {  
-                            needed[i] += Math.Max(sample.cost[i] - robot.expertise[i],0);
+                            needed[i] += Math.Max(sample.cost[i] - robot.expertise[i],0);                            
+
                             if (needed.Sum() > 10)
                             {
                                 if (robot.samples.OrderBy(s => s.rank).ToList().IndexOf(sample) != 0)
@@ -320,6 +360,7 @@ public class Robot
     public int score;
     public int[] storage;
     public int[] expertise;
+    public Queue<Sample> toBeResearched = new Queue<Sample>();
     
     public Robot(Module _target, int _eta, int _score, int[] _storage, int[] _expertise)
     {
@@ -353,43 +394,6 @@ public class Robot
         return canDo;
     }
     
-    public Project ClosestProject(List<Project> projects)
-    {
-        int minScore = 20;
-        Project cProject = projects.First();
-        
-        foreach(Project p in projects)
-        {
-            int tempScore = 0;
-            for (int i = 0 ; i < 5 ; i++)
-            {
-                   tempScore += Math.Max(p.expertise[i] - expertise[i], 0);
-            }
-            
-            if (tempScore < minScore)
-            {
-                minScore = tempScore;
-                cProject = p;
-            }
-        }
-        Console.Error.WriteLine("Projet visé : " + projects.IndexOf(cProject));
-        return cProject;        
-    }
-    
-    public bool IsGoodForProject(Sample sample)
-    {
-        int moleculetype = (int)sample.gain;
-        if (ClosestProject(Player.projects).expertise[moleculetype] > expertise[moleculetype])
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-        
-    }
-    
     public bool SamplesDoable()
     {        
         foreach(Sample sample in samples)
@@ -403,27 +407,98 @@ public class Robot
         return false;
     }
     
-    public bool SamplesResearchable(bool project)
+    public bool SamplesResearchable()
     {
         foreach(Sample sample in samples)
             {                        
                 if (CanResearchSample(sample))
                 {
-                    if (project)
-                    { 
-                        if (IsGoodForProject(sample))
-                        {
-                            return true;
-                        }
-                    }
-                    else
-                    {
                     return true;
-                    }
                 }
             }
             
         return false;
+    }
+
+    public bool IsSampleGoodForProjects(Sample sample)
+    {
+        bool isGood = true;
+
+        if (expertise.Sum() >= 6)
+        {
+            int[] goals = new int[5]{0,0,0,0,0};
+            foreach (Project project in Player.projects)
+            {
+                for(int i = 0 ; i < 5 ; i ++)
+                {
+                    goals[i] = Math.Max(project.expertise[i],goals[i]);
+                }
+            }
+
+            int gainMolecule = (int)sample.gain;
+
+            if (goals[gainMolecule] <= expertise[gainMolecule])
+            {
+                isGood = false;
+            }
+        }
+
+        return isGood;
+    }
+
+    public int ScoreFromProject(Project project)
+    {
+        int score = 0;
+        for (int i = 0 ; i < 5 ; i++)
+        {
+            score += Math.Max(project.expertise[i] - expertise[i], 0);
+        }  
+        return score;
+    }
+
+
+    public bool IsCloseToProjectEnd(Sample sample)
+    {
+        Project closestProject = ClosestProject();
+        if (CanDoSample(sample))
+        {
+            int molecule = (int)sample.gain;
+            if (closestProject.expertise[molecule] > expertise[molecule] && ScoreFromProject(closestProject) < 2)
+            {
+                return true;
+            }
+        }
+            
+        return false;
+    }
+
+    public int neededForSample(Sample sample)
+    {
+        int[] needed = new int[5]{0,0,0,0,0};
+        for (int i =0 ; i < 5 ; i++)
+        {
+            needed[i] = Math.Max(sample.cost[i] - expertise[i] - storage[i],0);
+        }
+        return needed.Sum();
+    }
+
+    public Project ClosestProject()
+    {       
+        int minScore = 20;
+        Project cProject = Player.projects.First();
+        
+        foreach(Project p in Player.projects)
+        {
+            int tempScore = ScoreFromProject(p);
+            
+            if (tempScore < minScore && tempScore > 0)
+            {
+                minScore = tempScore;
+                cProject = p;
+            }
+        }
+        Console.Error.WriteLine("Projet visé : " + Player.projects.IndexOf(cProject) + " écart : " + minScore);
+        return cProject;        
     }
         
             
@@ -454,7 +529,7 @@ public class Robot
     {
         bool canDo = true;
         
-        if (!CanResearchSample(sample) && storage.Sum() >= 10)
+        if ((!CanResearchSample(sample) && storage.Sum() >= 10) || !IsSampleGoodForProjects(sample))
         {
             canDo = false;
         }
@@ -647,11 +722,12 @@ class Player
             Console.Error.WriteLine("");
             
             Console.Error.WriteLine("Potential (A B C D E) : " + String.Join(" ",potential));
+            Console.Error.WriteLine("Available (A B C D E) : " + String.Join(" ",available));
             Console.Error.WriteLine("");
 
             foreach(Sample sample in myRobot.samples.OrderByDescending(item => item.health))
             {                          
-                Console.Error.WriteLine("Samp Cost (A B C D E) : " + String.Join(" ",sample.cost) + " - Rank " + sample.rank + " - Health : " + sample.health);
+                Console.Error.WriteLine("Samp Cost (A B C D E) : " + String.Join(" ",sample.cost) + " - Rank " + sample.rank + " - Health : " + sample.health + " - Gain : " + sample.gain.ToString() + " - ID : " + sample.id);
             }                
                 
             myRobot.Update();            
